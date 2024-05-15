@@ -1,9 +1,14 @@
+# Проверить как работает на товарищеских матчах. Д/Г
+# 2292 21310 14378
+
 from collections import Counter
 from time import sleep
 
 import requests
 from bs4 import BeautifulSoup
 
+MY_TEAM_NUMBER = 2292
+SEASON = 69
 TOURNAMENT_TYPES = {
     "Товарищеский": "1",
     "Кубок межсезонья": "2",
@@ -21,104 +26,115 @@ COLOR_TEXT_TYPES = {
 }
 ATTACKING_PLAYERS = ["CF", "ST", "RF", "LF", "RW", "LW", "AM"]
 
-
-def process_game_place(
-    index,
-    num_range,
-    gif_id_prefix,
-    tds,
-    auto_delivery_list,
-    power_ratings,
-    mini_result,
-    soup,
-):
-    for num in num_range:
-        mini_result.append(tds[num].find("i").text)
-    mini_result.append(auto_delivery_list[index])
-    mini_result.append(power_ratings[index])
-    positions = "-".join(
-        [soup.find("div", id=f"{gif_id_prefix}_{i}").text for i in range(11)]
-    )
-    mini_result.append(positions)
-    return positions
+MATCH_STATISTICS_TEAM_PLAYED_HOME = [0, 2, 4, 6]
+MATCH_STATISTICS_TEAM_PLAYED_AWAY = [1, 3, 5, 7]
+SEARCH_STR_TEAM_PLAYED_HOME = "gif_0"
+SEARCH_STR_TEAM_PLAYED_AWAY = "gif_1"
 
 
-def main(your_team_number, season):
+def get_next_opponents(your_team_number):
     """
-    Основная функция программы.
+    Получает информацию о ближайших соперниках.
 
     Args:
-        your_team_number (int): Номер твоей команды.
-        season (int): Номер сезона.
+        your_team_number (int): Номер вашей команды.
 
     Returns:
-        opponent_team_number(int): Номер команды ближайшего соперника в ближайшем турнире.
+        list: Список кортежей, каждый из которых содержит информацию о следующем сопернике.
+              Каждый кортеж состоит из трех элементов:
+              - Номер команды соперника (str)
+              - Имя команды соперника (str)
+              - Тип турнира (str)
     """
+    next_opponents = []
     url_my_team = (
         f"https://www.virtualsoccer.ru/roster.php?num={your_team_number}"
     )
     response = requests.get(url_my_team).text
     soup = BeautifulSoup(response, "lxml")
-    divs = soup.find_all("div", class_="lh14 txt2r")
+    for previewmatch in soup.select("div.lh14.txt2r:has(a.mnu.qt)"):
+        for tournament_type in TOURNAMENT_TYPES:
+            if tournament_type in previewmatch.text:
+                opponent_team_name = previewmatch.a.text
+                opponent_team_number = previewmatch.a["href"].replace(
+                    "roster.php?num=", ""
+                )
+                next_opponents.append(
+                    (opponent_team_number, opponent_team_name, tournament_type)
+                )
+                break
+    return next_opponents
 
-    for div in divs:
-        if div.find("a", class_="mnu qt"):
-            for tournament_type in TOURNAMENT_TYPES:
-                if tournament_type in div.text:
-                    filter_tournament = TOURNAMENT_TYPES[tournament_type]
-                    break
-            # Извлекаем имя команды ближайшего соперника в ближайшем турнире
-            name_team = div.find("a").text
-            href_team = div.find("a").get("href")
-            # Извлекаем номер команды ближайшего соперника в ближайшем турнире
-            opponent_team_number = href_team.replace("roster.php?num=", "")
-            break
 
-    # Переходим по ссылке команды ближайшего соперника (все матчи)
-    sleep(1)
-    response = requests.get(
-        f"https://www.virtualsoccer.ru/roster_m.php?season={season}&num={opponent_team_number}&season={season}&filter={filter_tournament}"
-    ).text
+def process_game_place(
+    index,
+    match_statistics_team_played,
+    search_str_team_played,
+    match_statistics,
+    auto_positions,
+    power_ratings,
+    mini_result,
+    soup,
+):
+    for num in match_statistics_team_played:
+        mini_result.append(match_statistics[num].find("i").text)
+    mini_result.append(auto_positions[index])
+    mini_result.append(power_ratings[index])
+    positions = "-".join(
+        [
+            soup.find("div", id=f"{search_str_team_played}_{i}").text
+            for i in range(11)
+        ]
+    )
+    mini_result.append(positions)
+    return positions
 
+
+def main(season, opponent_team_number, tournament_type):
+    # Смотрим все сыгранные матчи соперника в определенном турнире и сезоне.
+    filter_tournament = TOURNAMENT_TYPES[tournament_type]
+    url_opponent_games = f"https://www.virtualsoccer.ru/roster_m.php?season={season}&num={opponent_team_number}&season={season}&filter={filter_tournament}"
+    response = requests.get(url_opponent_games).text
     soup = BeautifulSoup(response, "lxml")
-    trs = soup.find_all("tr", bgcolor="#EEEEEE")
+    matches_played = soup.find_all("tr", bgcolor="#EEEEEE")
 
-    # Собираем ссылки всех сыгранных матчей соперника + Д/Г + автосостав + рэйтинг
-    matchs_list = []
-    games_place = []
-    auto_delivery_list = []
-    power_ratings = []
+    url_matches_played = []  # Ссылки на сыгранные матчи соперника.
+    games_place = []  # "Дома" или "В гостях".
+    auto_positions = []  # Автосостав ("*" или "").
+    power_ratings = []  # Рейтинг силы соперника.
 
-    for tr in trs:
-        href_match = tr.find("a", class_="hl").get("href")
-        matchs_list.append(href_match)
+    for match_played in matches_played:
+        href_match = match_played.find("a", class_="hl").get("href")
+        url_matches_played.append(href_match)
 
-        place = tr.find("td", class_="lh16 txt qt").get("title")
+        place = match_played.find("td", class_="lh16 txt qt").get("title")
         games_place.append(place)
 
-        ratings = tr.find("td", class_="lh16 txt5r qh").text
+        ratings = match_played.find("td", class_="lh16 txt5r qh").text
         power_ratings.append(ratings)
 
-        auto_delivery = tr.find("td", title="Автосостав")
+        auto_delivery = match_played.find("td", title="Автосостав")
         if auto_delivery:
-            auto_delivery_list.append("*")
+            auto_positions.append("*")
         else:
-            auto_delivery_list.append("")
+            auto_positions.append("")
 
-    # Находим рейтинг команды с которой предстоит играть ближайший матч
+    # Находим рейтинг команды с которой предстоит играть ближайший матч.
     last_bgcolor_tr_tag = soup.find_all("tr", {"bgcolor": "#EEEEEE"})[-1]
     next_tr_tag = last_bgcolor_tr_tag.find_next("tr")
-    current_rating = next_tr_tag.find("td", class_="lh16 txt5r qh").text
+    current_rating_opponent = next_tr_tag.find(
+        "td", class_="lh16 txt5r qh"
+    ).text
 
     # Проходимся по ссылкам всех матчей соперника и извлекаем нужную инфу
     result = []
     result_cost = []
-    for index in range(len(games_place)):
-        url = "https://www.virtualsoccer.ru/" + matchs_list[index]
+    for index in range(len(url_matches_played)):
+        url = "https://www.virtualsoccer.ru/" + url_matches_played[index]
         sleep(1)
         response = requests.get(url).text
         soup = BeautifulSoup(response, "lxml")
-        tds = soup.find_all("td", class_="lh18 txt")
+        match_statistics = soup.find_all("td", class_="lh18 txt")
 
         mini_result = []
         mini_result_cost = []
@@ -126,10 +142,10 @@ def main(your_team_number, season):
         if games_place[index] == "Дома":
             positions = process_game_place(
                 index,
-                [0, 2, 4, 6],
-                "gif_0",
-                tds,
-                auto_delivery_list,
+                MATCH_STATISTICS_TEAM_PLAYED_HOME,
+                SEARCH_STR_TEAM_PLAYED_HOME,
+                match_statistics,
+                auto_positions,
                 power_ratings,
                 mini_result,
                 soup,
@@ -173,10 +189,10 @@ def main(your_team_number, season):
         elif games_place[index] == "В гостях":
             positions = process_game_place(
                 index,
-                [1, 3, 5, 7],
-                "gif_1",
-                tds,
-                auto_delivery_list,
+                MATCH_STATISTICS_TEAM_PLAYED_AWAY,
+                SEARCH_STR_TEAM_PLAYED_AWAY,
+                match_statistics,
+                auto_positions,
                 power_ratings,
                 mini_result,
                 soup,
@@ -189,10 +205,10 @@ def main(your_team_number, season):
         attacking_players = str(attacking_players_count) + " игр. атаки"
         mini_result.append(attacking_players)
 
-        if "style" in tds[4].attrs:
-            if tds[4]["style"] == COLOR_TEXT_TYPES["зеленый"]:
+        if "style" in match_statistics[4].attrs:
+            if match_statistics[4]["style"] == COLOR_TEXT_TYPES["зеленый"]:
                 mini_result.append(True)
-            elif tds[4]["style"] == COLOR_TEXT_TYPES["красный"]:
+            elif match_statistics[4]["style"] == COLOR_TEXT_TYPES["красный"]:
                 mini_result.append(False)
         else:
             mini_result.append(None)
@@ -206,11 +222,37 @@ def main(your_team_number, season):
     auto_delivery = Counter(match[4] for match in result)
     number_attack_players = Counter(match[7] for match in result)
 
+    return (
+        current_rating_opponent,
+        style_collisions,
+        type_protection,
+        auto_delivery,
+        number_attack_players,
+        result,
+        result_cost,
+    )
+
+
+if __name__ == "__main__":
+    next_opponents = get_next_opponents(MY_TEAM_NUMBER)
+    opponent_team_number = next_opponents[0][0]
+    name_team = next_opponents[0][1]
+    tournament_type = next_opponents[0][2]
+
+    statistics = main(SEASON, opponent_team_number, tournament_type)
+    current_rating_opponent = statistics[0]
+    style_collisions = statistics[1]
+    type_protection = statistics[2]
+    auto_delivery = statistics[3]
+    number_attack_players = statistics[4]
+    result = statistics[5]
+    result_cost = statistics[6]
+
     print()
-    print(f"Турнир - {tournament_type}. Сезон - {season}.")
+    print(f"Турнир - {tournament_type}. Сезон - {str(SEASON)}.")
     print(f"Футбольная команда - {name_team.upper()}")
-    print(f"Рейтинг силы ближайшего соперника - {current_rating}")
-    print("Матчи:")
+    print(f"Рейтинг силы ближайшего соперника - {current_rating_opponent}")
+    print("Матчи, отсортированы по рейтингу соперников:")
 
     # Сортируем матчи по рейтингам соперников
     sorted_result = sorted(result, key=lambda x: int(x[5][:-1]), reverse=True)
@@ -227,12 +269,3 @@ def main(your_team_number, season):
     for result in result_cost:
         print(result)
     print()
-
-    return opponent_team_number
-
-
-if __name__ == "__main__":
-    opponent_team_number = main(2292, 69)
-    main(opponent_team_number, 69)
-
-# 2292 21310 14378
