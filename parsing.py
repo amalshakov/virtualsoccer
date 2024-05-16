@@ -8,7 +8,7 @@ from time import sleep
 import requests
 from bs4 import BeautifulSoup
 
-MY_TEAM_NUMBER = 2292
+MY_TEAM_NUMBER = 21310
 SEASON = 69
 TOURNAMENT_TYPES = {
     "Товарищеский": "1",
@@ -77,6 +77,38 @@ def check_free_team(team_number):
         title = password_and_free_team[1]["title"]
         return title
     return None
+
+
+def find_manager_working(team_number):
+    """С какого времени работает менеджер в команде."""
+    url_team = f"https://www.virtualsoccer.ru/roster.php?num={team_number}"
+    response = requests.get(url_team).text
+    soup = BeautifulSoup(response, "lxml")
+    team_basic_information = soup.find_all("div", class_="lh17 txtl")
+    if not team_basic_information[0].find("a"):
+        return None
+    name_manager = team_basic_information[0].find("a").text
+    nick_manager = team_basic_information[1].find("b").text
+
+    for index in range(1, 20):
+        sleep(random.uniform(0.1, 0.5))
+        url_team_events_page = f"https://www.virtualsoccer.ru/roster_e.php?num={team_number}&page={index}"
+        response = requests.get(url_team_events_page).text
+        soup = BeautifulSoup(response, "lxml")
+        events = soup.find_all("tr")[12:]
+        for event in events:
+            if (
+                "принят на работу тренером-менеджером в команду"
+                in event.find("td", class_="lh18 txtl").text
+            ):
+                season = (
+                    event.find("td", class_="lh18 txt2 qtt")
+                    .contents[-1]
+                    .strip()
+                )
+                day = event.find("td", class_="lh18 txt2r qtt").text
+                date = event.find_all("td", class_="lh18 txt2r qtt")[1].text
+                return name_manager, nick_manager, season, day, date
 
 
 def get_ticket_sales(soup, result_cost, mini_result_cost):
@@ -273,12 +305,26 @@ if __name__ == "__main__":
     count_zonal = statistics[5]
     result = statistics[6]
 
+    team_manager = find_manager_working(opponent_team_number)
+    if team_manager:
+        name_manager = team_manager[0]
+        nick_manager = team_manager[1]
+        season = team_manager[2]
+        day = team_manager[3]
+        date = team_manager[4]
+
     print()
     print(f"Турнир - {tournament_type}. Сезон - {str(SEASON)}.")
     print(f"Футбольная команда - {name_team.upper()}")
     free_team = check_free_team(opponent_team_number)
     if free_team:
         print(free_team, "!")
+    if team_manager:
+        print(
+            f"Менеджер '{name_manager}'. Ник '{nick_manager}'. Назначен {date}. Сезон {season}. Виртуальный игровой день {day}."
+        )
+    else:
+        print("Менеджер отсутсвует !")
     print(f"Рейтинг силы ближайшего соперника - {current_rating_opponent}")
     print("Матчи, отсортированы по рейтингу соперников:")
 
