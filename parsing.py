@@ -1,6 +1,7 @@
 # Проверить как работает на товарищеских матчах. Д/Г
 # 2292 21310 14378
 
+import random
 from collections import Counter
 from time import sleep
 
@@ -66,6 +67,49 @@ def get_next_opponents(your_team_number):
     return next_opponents
 
 
+def check_free_team(team_number):
+    """Проверка свободна ли команда."""
+    url_team = f"https://www.virtualsoccer.ru/roster.php?num={team_number}"
+    response = requests.get(url_team).text
+    soup = BeautifulSoup(response, "lxml")
+    password_and_free_team = soup.find_all("img", class_="qt", title=True)
+    if len(password_and_free_team) >= 2:
+        title = password_and_free_team[1]["title"]
+        return title
+    return None
+
+
+def get_ticket_sales(soup, result_cost, mini_result_cost):
+
+    basic_match_information = soup.find(
+        "div", style="padding:3px 0 1px 0"
+    ).get_text()
+
+    start_index = basic_match_information.find("(")
+    end_index = basic_match_information.find(")", start_index)
+    stadium_capacity = int(
+        basic_match_information[start_index + 1 : end_index].replace(" ", "")
+    )
+    mini_result_cost.append(stadium_capacity)
+
+    start_index = basic_match_information.find("Зрителей:") + len("Зрителей:")
+    end_index = basic_match_information.find(".", start_index)
+    number_of_viewers = int(
+        basic_match_information[start_index:end_index].replace(" ", "")
+    )
+    mini_result_cost.append(number_of_viewers)
+
+    start_index = basic_match_information.find("Билет:") + len("Билет:")
+    ticket_price = int(basic_match_information[start_index:].strip())
+    mini_result_cost.append(ticket_price)
+
+    # Считаем доход от продажи билетов.
+    income = number_of_viewers * ticket_price
+    mini_result_cost.append(income)
+    result_cost.append(mini_result_cost)
+    return result_cost
+
+
 def process_game_place(
     index,
     match_statistics_team_played,
@@ -90,7 +134,7 @@ def process_game_place(
     return positions
 
 
-def main(season, opponent_team_number, tournament_type):
+def main(season, opponent_team_number, tournament_type, flag_ticket):
     # Смотрим все сыгранные матчи соперника в определенном турнире и сезоне.
     filter_tournament = TOURNAMENT_TYPES[tournament_type]
     url_opponent_games = f"https://www.virtualsoccer.ru/roster_m.php?season={season}&num={opponent_team_number}&season={season}&filter={filter_tournament}"
@@ -130,8 +174,8 @@ def main(season, opponent_team_number, tournament_type):
     result = []
     result_cost = []
     for index in range(len(url_matches_played)):
+        sleep(random.uniform(0.1, 0.5))
         url = "https://www.virtualsoccer.ru/" + url_matches_played[index]
-        sleep(1)
         response = requests.get(url).text
         soup = BeautifulSoup(response, "lxml")
         match_statistics = soup.find_all("td", class_="lh18 txt")
@@ -151,40 +195,10 @@ def main(season, opponent_team_number, tournament_type):
                 soup,
             )
 
-            # Извлекаем вместимость стадиона,
-            # количество зрителей на матче, цену билета.
-            basic_match_information = soup.find(
-                "div", style="padding:3px 0 1px 0"
-            ).get_text()
-
-            start_index = basic_match_information.find("(")
-            end_index = basic_match_information.find(")", start_index)
-            stadium_capacity = int(
-                basic_match_information[start_index + 1 : end_index].replace(
-                    " ", ""
+            if flag_ticket:
+                result_cost = get_ticket_sales(
+                    soup, result_cost, mini_result_cost
                 )
-            )
-            mini_result_cost.append(stadium_capacity)
-
-            start_index = basic_match_information.find("Зрителей:") + len(
-                "Зрителей:"
-            )
-            end_index = basic_match_information.find(".", start_index)
-            number_of_viewers = int(
-                basic_match_information[start_index:end_index].replace(" ", "")
-            )
-            mini_result_cost.append(number_of_viewers)
-
-            start_index = basic_match_information.find("Билет:") + len(
-                "Билет:"
-            )
-            ticket_price = int(basic_match_information[start_index:].strip())
-            mini_result_cost.append(ticket_price)
-
-            # Считаем доход от продажи билетов.
-            income = number_of_viewers * ticket_price
-            mini_result_cost.append(income)
-            result_cost.append(mini_result_cost)
 
         elif games_place[index] == "В гостях":
             positions = process_game_place(
@@ -220,14 +234,25 @@ def main(season, opponent_team_number, tournament_type):
     style_collisions = Counter(match[2] for match in result)
     type_protection = Counter(match[3] for match in result)
     auto_delivery = Counter(match[4] for match in result)
-    number_attack_players = Counter(match[7] for match in result)
+    # number_attack_players = Counter(match[7] for match in result)
+
+    count_personally = 0
+    count_zonal = 0
+    for match in result:
+        attacking_players = match[7]
+        amount_attacking_players = int(attacking_players[0])
+        if amount_attacking_players <= 3:
+            count_personally += 1
+        elif amount_attacking_players > 3:
+            count_zonal += 1
 
     return (
         current_rating_opponent,
         style_collisions,
         type_protection,
         auto_delivery,
-        number_attack_players,
+        count_personally,
+        count_zonal,
         result,
         result_cost,
     )
@@ -239,18 +264,21 @@ if __name__ == "__main__":
     name_team = next_opponents[0][1]
     tournament_type = next_opponents[0][2]
 
-    statistics = main(SEASON, opponent_team_number, tournament_type)
+    statistics = main(SEASON, opponent_team_number, tournament_type, False)
     current_rating_opponent = statistics[0]
     style_collisions = statistics[1]
     type_protection = statistics[2]
     auto_delivery = statistics[3]
-    number_attack_players = statistics[4]
-    result = statistics[5]
-    result_cost = statistics[6]
+    count_personally = statistics[4]
+    count_zonal = statistics[5]
+    result = statistics[6]
 
     print()
     print(f"Турнир - {tournament_type}. Сезон - {str(SEASON)}.")
     print(f"Футбольная команда - {name_team.upper()}")
+    free_team = check_free_team(opponent_team_number)
+    if free_team:
+        print(free_team, "!")
     print(f"Рейтинг силы ближайшего соперника - {current_rating_opponent}")
     print("Матчи, отсортированы по рейтингу соперников:")
 
@@ -259,12 +287,53 @@ if __name__ == "__main__":
     for match in sorted_result:
         print(str(match))
     print()
-    print("Статистика:")
+    print("СТАТИСТИКА:")
+    print("Стиль:")
     print(dict(style_collisions))
+    print("Вид защиты:")
     print(dict(type_protection))
+    print("Автосоставы:")
     print(dict(auto_delivery))
-    print(dict(number_attack_players))
+    print("Игроки атаки:")
+    print(f" - до 3 игроков атаки - {count_personally} раз.")
+    print(f" - 4 и более игроков атаки - {count_zonal} раз.")
+
+    next_opponents = get_next_opponents(opponent_team_number)
+    opponent_team_number = next_opponents[0][0]
+    name_team = next_opponents[0][1]
+    tournament_type = next_opponents[0][2]
+
+    statistics = main(SEASON, opponent_team_number, tournament_type, True)
+    current_rating_opponent = statistics[0]
+    style_collisions = statistics[1]
+    type_protection = statistics[2]
+    auto_delivery = statistics[3]
+    count_personally = statistics[4]
+    count_zonal = statistics[5]
+    result = statistics[6]
+    result_cost = statistics[7]
+
     print()
+    print(f"Турнир - {tournament_type}. Сезон - {str(SEASON)}.")
+    print(f"Футбольная команда - {name_team.upper()}")
+    print(f"Рейтинг силы ближайшего соперника - {current_rating_opponent}")
+    print("Матчи, отсортированы по турам:")
+
+    for match in result:
+        print(str(match))
+    print()
+    print("СТАТИСТИКА:")
+    print("Стиль:")
+    print(dict(style_collisions))
+    print("Вид защиты:")
+    print(dict(type_protection))
+    print("Автосоставы:")
+    print(dict(auto_delivery))
+    print("Игроки атаки:")
+    print(f" - до 3 игроков атаки - {count_personally} раз.")
+    print(f" - 4 и более игроков атаки - {count_zonal} раз.")
+    print()
+    print("ПРОДАЖА БИЛЕТОВ:")
     print("Вместимость стадиона, Количество зрителей, Цена билета, Доход:")
     for result in result_cost:
         print(result)
