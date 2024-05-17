@@ -1,5 +1,5 @@
 # Проверить как работает на товарищеских матчах. Д/Г
-# 2292 21310 14378
+# 2292 15662 21310 14378
 
 import random
 from collections import Counter
@@ -8,7 +8,7 @@ from time import sleep
 import requests
 from bs4 import BeautifulSoup
 
-MY_TEAM_NUMBER = 21310
+MY_TEAM_NUMBER = 15662
 SEASON = 69
 TOURNAMENT_TYPES = {
     "Товарищеский": "1",
@@ -72,9 +72,9 @@ def check_free_team(team_number):
     url_team = f"https://www.virtualsoccer.ru/roster.php?num={team_number}"
     response = requests.get(url_team).text
     soup = BeautifulSoup(response, "lxml")
-    password_and_free_team = soup.find_all("img", class_="qt", title=True)
-    if len(password_and_free_team) >= 2:
-        title = password_and_free_team[1]["title"]
+    free_team = soup.find_all("img", class_="qt", title=True)
+    if len(free_team) == 3:
+        title = free_team[1]["title"]
         return title
     return None
 
@@ -87,7 +87,7 @@ def find_manager_working(team_number):
     team_basic_information = soup.find_all("div", class_="lh17 txtl")
     if not team_basic_information[0].find("a"):
         return None
-    name_manager = team_basic_information[0].find("a").text
+    name_manager = team_basic_information[0].find("a").text.strip()
     nick_manager = team_basic_information[1].find("b").text
 
     for index in range(1, 20):
@@ -111,7 +111,7 @@ def find_manager_working(team_number):
                 return name_manager, nick_manager, season, day, date
 
 
-def get_ticket_sales(soup, result_cost, mini_result_cost):
+def get_ticket_sales(soup, result_cost, mini_result_cost, rating):
 
     basic_match_information = soup.find(
         "div", style="padding:3px 0 1px 0"
@@ -138,7 +138,9 @@ def get_ticket_sales(soup, result_cost, mini_result_cost):
     # Считаем доход от продажи билетов.
     income = number_of_viewers * ticket_price
     mini_result_cost.append(income)
+    mini_result_cost.append(rating)
     result_cost.append(mini_result_cost)
+
     return result_cost
 
 
@@ -216,6 +218,7 @@ def main(season, opponent_team_number, tournament_type, flag_ticket):
         mini_result_cost = []
 
         if games_place[index] == "Дома":
+            rating = power_ratings[index]
             positions = process_game_place(
                 index,
                 MATCH_STATISTICS_TEAM_PLAYED_HOME,
@@ -229,7 +232,7 @@ def main(season, opponent_team_number, tournament_type, flag_ticket):
 
             if flag_ticket:
                 result_cost = get_ticket_sales(
-                    soup, result_cost, mini_result_cost
+                    soup, result_cost, mini_result_cost, rating
                 )
 
         elif games_place[index] == "В гостях":
@@ -321,10 +324,10 @@ if __name__ == "__main__":
         print(free_team, "!")
     if team_manager:
         print(
-            f"Менеджер '{name_manager}'. Ник '{nick_manager}'. Назначен {date}. Сезон {season}. Виртуальный игровой день {day}."
+            f"Менеджер - {name_manager}. Ник - {nick_manager}. Назначен {date}. Сезон {season}. Виртуальный игровой день {day}."
         )
     else:
-        print("Менеджер отсутсвует !")
+        print("Менеджер отсутствует !")
     print(f"Рейтинг силы ближайшего соперника - {current_rating_opponent}")
     print("Матчи, отсортированы по рейтингу соперников:")
 
@@ -380,7 +383,9 @@ if __name__ == "__main__":
     print(f" - 4 и более игроков атаки - {count_zonal} раз.")
     print()
     print("ПРОДАЖА БИЛЕТОВ:")
-    print("Вместимость стадиона, Количество зрителей, Цена билета, Доход:")
+    print(
+        "Вместимость стадиона, Количество зрителей, Цена билета, Доход, Рэйтинг соперника."
+    )
     for result in result_cost:
         print(result)
     print()
