@@ -1,5 +1,5 @@
 # Проверить как работает на товарищеских матчах. Д/Г
-# 2292 15662 21310 14378
+# 2292 20795 21310 14378
 
 import random
 from collections import Counter
@@ -8,7 +8,7 @@ from time import sleep
 import requests
 from bs4 import BeautifulSoup
 
-MY_TEAM_NUMBER = 15662
+MY_TEAM_NUMBER = 2292
 SEASON = 69
 TOURNAMENT_TYPES = {
     "Товарищеский": "1",
@@ -95,10 +95,10 @@ def find_manager_working(team_number):
         url_team_events_page = f"https://www.virtualsoccer.ru/roster_e.php?num={team_number}&page={index}"
         response = requests.get(url_team_events_page).text
         soup = BeautifulSoup(response, "lxml")
-        events = soup.find_all("tr")[12:]
+        events = soup.find_all("tr")[12:-25]
         for event in events:
             if (
-                "принят на работу тренером-менеджером в команду"
+                "на работу тренером-менеджером в команду"
                 in event.find("td", class_="lh18 txtl").text
             ):
                 season = (
@@ -329,12 +329,20 @@ if __name__ == "__main__":
     else:
         print("Менеджер отсутствует !")
     print(f"Рейтинг силы ближайшего соперника - {current_rating_opponent}")
-    print("Матчи, отсортированы по рейтингу соперников:")
 
+    # Сортируем матчи по турам
+    if tournament_type == "Товарищеский":
+        print("Матчи, отсортированы по турам:")
+        for match in result:
+            print(str(match))
     # Сортируем матчи по рейтингам соперников
-    sorted_result = sorted(result, key=lambda x: int(x[5][:-1]), reverse=True)
-    for match in sorted_result:
-        print(str(match))
+    else:
+        sorted_result = sorted(
+            result, key=lambda x: int(x[5][:-1]), reverse=True
+        )
+        print("Матчи, отсортированы по рейтингу соперников:")
+        for match in sorted_result:
+            print(str(match))
     print()
     print("СТАТИСТИКА:")
     print("Стиль:")
@@ -348,9 +356,13 @@ if __name__ == "__main__":
     print(f" - 4 и более игроков атаки - {count_zonal} раз.")
 
     next_opponents = get_next_opponents(opponent_team_number)
-    opponent_team_number = next_opponents[0][0]
-    name_team = next_opponents[0][1]
-    tournament_type = next_opponents[0][2]
+    # Ищем у своего ближайшего соперника - себя
+    for index in range(len(next_opponents)):
+        if next_opponents[index][2] == tournament_type:
+            opponent_team_number = next_opponents[index][0]
+            name_team = next_opponents[index][1]
+            tournament_type = next_opponents[index][2]
+            break
 
     statistics = main(SEASON, opponent_team_number, tournament_type, True)
     current_rating_opponent = statistics[0]
